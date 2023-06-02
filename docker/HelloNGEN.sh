@@ -69,6 +69,15 @@ select option in "${options[@]}"; do
       ;;
   esac
 done
+
+# Validate selected configs
+if docker run -e CATCH_CONF="/ngen/ngen/data/$n1" -e NEX_CONF="/ngen/ngen/data/$n2" -e REALIZATION="/ngen/ngen/data/$n3" -v $workdir:/ngen/ngen/data ngen_conf_val ; then
+echo "NGen configs are valid"
+else
+echo "One of the selected configs is not valid!"
+exit
+fi
+
 echo "If your model didn't run, or encountered an error, try checking the Forcings paths in the Realizations file you selected."
 echo "Your model run is beginning!"
 echo ""
