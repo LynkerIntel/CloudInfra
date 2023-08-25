@@ -29,7 +29,7 @@ download_s3_objects() {
     local aws_access_key_id="$3"
     local aws_secret_access_key="$4"
     
-    read -rp "Would you like to list all of the objects in this bucket? (yes/no): " LIST_BUCKET
+    read -rp "Would you like to list all of the objects in this bucket: $source? (yes/no): " LIST_BUCKET
     
     if [ "$LIST_BUCKET" == "yes" ]; then
         if [[ $3 != '' ]]; then
@@ -52,6 +52,8 @@ download_s3_objects() {
         echo -e "Exiting program"
         exit 1
     fi
+
+    echo -e "\n"
 }
 
 set -e
@@ -60,33 +62,37 @@ echo -e "\n"
 echo "========================================================="
 echo -e "${BWhite} Welcome to CIROH-UA:NextGen National Water Model App! ${Color_Off}"
 echo "========================================================="
+
 echo -e "\n"
 echo -e "NextGen requires the locations of input files:\n"
 
-echo -e "${BBlue}forcings${Color_Off} folder contains the hydrofabric input data for your model(s)."
+echo -e "${BBlue}forcing${Color_Off} folder contains the hydrofabric input data for your model(s)."
 echo -e "${BGreen}config${Color_Off} folder has all the configuration related files for the model."
 echo -e "${BPurple}outputs${Color_Off} is where the output files are copied to when the model finish the run"
-
+echo -e "\n"
 
 # Locate input files. Download if needed
 declare -A choices
 declare -A input_paths
 declare -A directories
-directories["forcings"]="forcings"
+directories["forcing"]="forcing"
 directories["config"]="config"
+
 
 for directory in "${!directories[@]}"; do
 
-    if [ "${directory}" == "forcings" ]; then
+    if [ "${directory}" == "forcing" ]; then
         dir_color=$BBlue
     elif [ "${directory}" == "config" ]; then
         dir_color=$BGreen
     fi
 
-    echo -e "\nSelect storage type for ${dir_color}${directory}${Color_Off} directory:"
+    echo -e "Select storage type for ${dir_color}${directory}${Color_Off} directory:"
+    options=("Local" "Bucket")
     PS3="Choice: "  
-    select choice in "Local" "Bucket"; do
-        case $choice in
+    select opt in "${options[@]}"
+    do
+        case $opt in
             Local)
                 read -rp "Enter the local path to the ${directory} directory: " LOCAL_PATH
                 input_paths["${directory}"]=$LOCAL_PATH
@@ -96,9 +102,9 @@ for directory in "${!directories[@]}"; do
                 local_files=("$(pwd)/data/${directory}/*")
                 local_folder=${local_files%??}
                 if [ "$(ls -A $local_folder)" ]; then
-                    read -rp "It looks like downloaded bucket forcings already exist. Do you want to overwrite this folder? (yes/no): " OVERWRITE
+                    read -rp "It looks like downloaded bucket forcing already exist. Do you want to overwrite this folder? (yes/no): " OVERWRITE
                     if [ "$OVERWRITE" == "no" ]; then
-                        echo "Exiting the program. Please move this data and restart -> ${local_folder}"
+                        echo "Exiting the program. Please move this data and restart. Choose Local option to use this folder -> ${local_folder}"
                         exit 1
                     else
                         echo "Cleaning ${local_folder}..."
@@ -119,20 +125,30 @@ for directory in "${!directories[@]}"; do
                 fi
 
                 read -rp "Does accessing the bucket require any additional credentials? (yes/no): " BUCKET_CREDENTIALS
+            
 
                 if [ "$BUCKET_CREDENTIALS" == "yes" ]; then
                 
                     read -rp "Enter access key ID: " ACCESS_KEY_ID
                     read -rp "Enter secret access key: " SECRET_ACCESS_KEY
 
-                    download_s3_objects $BUCKET_URI $local_folder $ACCESS_KEY_ID $SECRET_ACCESS_KEY
-                                       
+                    download_s3_objects $BUCKET_URI $local_folder $ACCESS_KEY_ID $SECRET_ACCESS_KEY                                       
                 else
                     download_s3_objects $BUCKET_URI $local_folder
                 fi
 
-                input_paths["${directory}"]=$local_folder
+                if [ ${directory} == "forcing" ]; then
+                    meta_folder="$(dirname $BUCKET_URI )/forcing_metadata"
+                    meta_folder_local="$(dirname $local_folder )/forcing_metadata"    
+                    if [ "$BUCKET_CREDENTIALS" == "yes" ]; then
+                        download_s3_objects $meta_folder $meta_folder_local $ACCESS_KEY_ID $SECRET_ACCESS_KEY
+                    else
+                        download_s3_objects $meta_folder $meta_folder_local                
+                    fi
+                fi
 
+                input_paths["${directory}"]=$local_folder
+                break
                 ;;
             *)
                 echo "Invalid choice, please select again."
@@ -141,23 +157,16 @@ for directory in "${!directories[@]}"; do
     done
 done
 
-# Assert that forcings and configs are in the same directory
-forcings_parent=$(dirname ${input_paths["forcings"]} )
-config_parent="$(dirname ${input_paths["config"]} )"
-if [ $forcings_parent != $config_parent ]; then
-    echo -e "forcings and config folders must have the same parent folder."
-    exit 1
-fi
+HOST_DATA_PATH=$(dirname ${input_paths["forcing"]} )
+echo -e "Outputs will be placed in $HOST_DATA_PATH/outputs"
 
-HOST_DATA_PATH=$forcings_parent
-echo -e "Outputs will be placed in $forcings_parent/outputs"
-
-Forcings_Count=$(ls ${input_paths["forcings"]} | wc -l)
+Forcing_Count=$(ls ${input_paths["forcing"]} | wc -l)
 Config_Count=$(ls ${input_paths["config"]} | wc -l)
 Outputs_Count=$(ls "${HOST_DATA_PATH}/outputs" | wc -l)
 
 #Validate paths exist:
-[ -d "$HOST_DATA_PATH/forcings" ] && echo -e "${BBlue}forcings${Color_Off} exists. $Forcings_Count forcings found." || echo -e "Error: Directory $HOST_DATA_PATH/${BBlue}forcings${Color_Off} does not exist."
+[ -d "$HOST_DATA_PATH/forcing" ] && echo -e "${BBlue}forcing${Color_Off} exists. $Forcing_Count forcing found." || echo -e "Error: Directory $HOST_DATA_PATH/${BBlue}forcing${Color_Off} does not exist."
+[ -d "$HOST_DATA_PATH/forcing_metadata" ] && echo -e "${BGreen}forcing_metadata${Color_Off} exists." || echo -e "Error: Directory $HOST_DATA_PATH/${BGreen}forcing_metadata${Color_Off} does not exist."
 [ -d "$HOST_DATA_PATH/outputs" ] && echo -e "${BPurple}outputs${Color_Off} exists. $Outputs_Count outputs found." || echo -e "Error: Directory $HOST_DATA_PATH/${BPurple}outputs${Color_Off} does not exist, but will be created if you choose to copy the outputs after the run." 
 [ -d "$HOST_DATA_PATH/config" ] && echo -e "${BGreen}config${Color_Off} exists. $Config_Count configs found." || echo -e "Error: Directory $HOST_DATA_PATH/${BGreen}config${Color_Off} does not exist."
 
@@ -263,23 +272,36 @@ done
 catch_base=$(basename $n1)
 nexus_base=$(basename $n2)
 reali_base=$(basename $n3)
-echo -e "${UPurple}VALIDATING CONFIGURATION FILES...:${Color_Off}"
-if docker run -v ${input_paths["config"]}:/ngen/data -e CATCH_CONF="/ngen/data/$catch_base" -e NEX_CONF="/ngen/data/$nexus_base" -e REALIZATION="/ngen/data/$reali_base" -v $workdir:/ngen/ngen/data ngen_conf_val:latest ; then
-echo "NGen configs are valid"
+read -rp "Would you like to validate the config files? This is strongly encouraged (yes/no): " VALIDATE
+if [ "${VALIDATE}" == "yes" ]; then
+    echo -e "${UPurple}VALIDATING CONFIGURATION FILES...:${Color_Off}"
+    if docker run -v ${HOST_DATA_PATH}:/ngen/data -e CATCH_CONF="/ngen/data/config/$catch_base" -e NEX_CONF="/ngen/data/config/$nexus_base" -e REALIZATION="/ngen/data/config/$reali_base" -v $workdir:/ngen/ngen/data ngen_validation:latest ; then
+        echo "NGen configs are valid"
+    else
+        echo "One of the selected configs is not valid!"
+        exit
+    fi
 else
-echo "One of the selected configs is not valid!"
-exit
+    echo -e "${URed}WARNING! CONFIG FILES WERE NOT VALIDATED${Color_Off}"
+
 fi
 
 # Generate metadata
-echo -e "${UPurple}GENERATING METADATA...:${Color_Off}"
-if docker run -v ${input_paths["config"]}:/ngen/data -e CATCH_CONF="/ngen/data/$catch_base" -e NEX_CONF="/ngen/data/$nexus_base" -e REALIZATION="/ngen/data/$reali_base" -v $workdir:/ngen/ngen/data ngen_inabox_metadata:latest ; then
-echo "NGen configs are valid"
+cross_base="" # TODO: add user prompt for this!
+echo -e "\n"
+read -rp "Would you like to generate metadata? This is strongly encouraged (yes/no): " METADATA
+if [ "${METADATA}" == "yes" ]; then
+    echo -e "${UPurple}GENERATING METADATA...:${Color_Off}"
+    if docker run -v ${HOST_DATA_PATH}:/ngen/data -e CATCH_CONF="/ngen/data/config/$catch_base" -e NEX_CONF="/ngen/data/config/$nexus_base" -e REALIZATION="/ngen/data/config/$reali_base" -e CROSSWALK="." -v $workdir:/ngen/ngen/data ngen_metadata:latest ; then
+        echo "Metadata has been properly generated"
+    else
+        echo "Problem generating metadata! If you did not validate the configs, an invalid config file may be the problem."
+        exit
+    fi
 else
-echo "One of the selected configs is not valid!"
-exit
-fi
+    echo -e "${URed}WARNING! METADATA NOT GENERATED${Color_Off}"
 
+fi    
 
 #Detect Arch
 AARCH=$(uname -a)
@@ -313,19 +335,18 @@ echo -e "\n"
 
 if uname -a | grep arm64 || uname -a | grep aarch64 ; then
 
-docker pull awiciroh/ciroh-ngen-image:latest-arm
-echo -e "Pulled awiciroh/ciroh-ngen-image:latest-arm image"
-IMAGE_NAME=awiciroh/ciroh-ngen-image:latest-arm
+    docker pull awiciroh/ciroh-ngen-image:latest-arm
+    echo -e "Pulled awiciroh/ciroh-ngen-image:latest-arm image"
+    IMAGE_NAME="awiciroh/ciroh-ngen-image:latest-arm"
 else
 
-docker pull awiciroh/ciroh-ngen-image:latest-x86
-echo -e "Pulled awiciroh/ciroh-ngen-image:latest-x86 image"
-IMAGE_NAME=awiciroh/ciroh-ngen-image:latest-x86
+    docker pull awiciroh/ciroh-ngen-image:latest-x86
+    echo -e "Pulled awiciroh/ciroh-ngen-image:latest-x86 image"
+    IMAGE_NAME="awiciroh/ciroh-ngen-image:latest-x86"
 fi
 
-echo "If your model didn't run, or encountered an error, try checking the Forcings paths in the Realizations file you selected."
+echo "If your model didn't run, or encountered an error, try checking the Forcing paths in the Realizations file you selected."
 echo "Your model run is beginning!"
-echo ""
 
 echo -e "\n"
 echo -e "Running NextGen docker container..."
