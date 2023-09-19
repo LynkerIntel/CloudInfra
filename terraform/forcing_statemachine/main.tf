@@ -120,80 +120,37 @@ resource "aws_iam_policy" "invoke_statemachine_policy" {
   })
 }
 
-# # Step Function
-# resource "aws_sfn_state_machine" "sfn_state_machine" {
-#   name     = "ngenforcing"
-#   role_arn = aws_iam_role.iam_for_sfn.arn
+# Step Function
+resource "aws_sfn_state_machine" "sfn_state_machine" {
+  name     = "ngenforcing"
+  role_arn = aws_iam_role.iam_for_sfn.arn
 
-#   definition = jsonencode({
-#     Comment   = "Triggered by EventBridgeRule",
-#     StartAt   = "ParallelState",
-#     States    = {
-#       ParallelState = {
-#         Type      = "Parallel",
-#         Branches  = [
-#           for key, value in var.unique_env_vars :
-#           {
-#             StartAt = "${value}"
-#             States  = {
-#               "${value}": {
-#                 Type     = "Task",
-#                 Resource = "arn:aws:states:::lambda:invoke",
-#                 Parameters = {
-#                   FunctionName = aws_lambda_function.forcing_processor_function[key].function_name
-#                 }
-#                 End      = true
-#               }
-#             }
-#           }
-#         ],
-#         End       = true
-#       }
-#     }
-#   })
-# }
-locals {
-  state_machine_definition = {
+  definition = jsonencode({
     Comment   = "Triggered by EventBridgeRule",
-    StartAt   = "FirstLambda",
+    StartAt   = "ParallelState",
     States    = {
-      FirstLambda = {
-        Type     = "Task",
-        Resource = "arn:aws:states:::lambda:invoke",
-        Parameters = {
-          FunctionName = aws_lambda_function.forcing_processor_function[var.unique_env_vars[0]].function_name
-        },
-        Next     = "ChoiceState"
-      },
-      ChoiceState = {
-        Type    = "Choice",
-        Choices = [ // Create choices for each Lambda function except the last one
-          for index, value in var.unique_env_vars :
+      ParallelState = {
+        Type      = "Parallel",
+        Branches  = [
+          for key, value in var.unique_env_vars :
           {
-            Variable     = "$.index",
-            NumericEquals = index,
-            Next         = "Lambda${index + 1}"
+            StartAt = "${value}"
+            States  = {
+              "${value}": {
+                Type     = "Task",
+                Resource = "arn:aws:states:::lambda:invoke",
+                Parameters = {
+                  FunctionName = aws_lambda_function.forcing_processor_function[key].function_name
+                }
+                End      = true
+              }
+            }
           }
         ],
-        Default = "EndState"
-      },
-      // Create a state for each Lambda function
-      for index, value in var.unique_env_vars :
-      "Lambda${index}" = {
-        Type     = "Task",
-        Resource = "arn:aws:states:::lambda:invoke",
-        Parameters = {
-          FunctionName = aws_lambda_function.forcing_processor_function[value].function_name
-        },
-        Next     = "${index == length(var.unique_env_vars) - 1 ? "EndState" : "ChoiceState"}"
-      },
-      EndState = {
-        Type  = "Pass",
-        Result = "All Lambdas Executed",
-        End   = true
+        End       = true
       }
     }
-  }
+  })
 }
 
 resource "aws_sfn_state_machine" "sfn_state_machine" {
