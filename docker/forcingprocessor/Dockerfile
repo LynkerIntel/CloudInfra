@@ -8,7 +8,6 @@ ARG FUNCTION_DIR
 
 # Get code
 RUN git clone --depth 1 -b hydrofab2ngen_tools https://github.com/JordanLaserGit/data_access_examples.git
-COPY ./ngen_forcings_lambda.json ${FUNCTION_DIR}/ngen_forcing/ngen_forcings_lambda.json
 
 # Install the function's dependencies
 RUN pip3 install --upgrade pip
